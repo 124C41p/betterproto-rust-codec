@@ -1,5 +1,5 @@
 use crate::betterproto_interop::InteropError;
-use pyo3::{exceptions::PyRuntimeError, PyDowncastError, PyErr};
+use pyo3::{exceptions::PyRuntimeError, DowncastError, PyErr};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -16,8 +16,8 @@ pub enum EncodeError {
 
 pub type EncodeResult<T> = Result<T, EncodeError>;
 
-impl From<PyDowncastError<'_>> for EncodeError {
-    fn from(_: PyDowncastError) -> Self {
+impl From<DowncastError<'_, '_>> for EncodeError {
+    fn from(_: DowncastError) -> Self {
         Self::DowncastFailed
     }
 }

@@ -10,8 +10,8 @@ use crate::{
 use prost::{encoding as enc, Message};
 use pyo3::{
     intern,
-    types::{PyDict, PyList},
-    PyAny, PyResult,
+    types::{PyAnyMethods, PyDict, PyDictMethods, PyList, PyListMethods},
+    Bound, PyAny, PyResult,
 };
 
 pub struct MessageEncoder(Vec<Chunk>);
@@ -24,7 +24,7 @@ impl MessageEncoder {
         let mut encoder = MessageEncoder::new();
         for (tag, field) in descriptor.fields.iter() {
             if let Some(value) = msg.get_field(&field.name)? {
-                encoder.load_field(*tag, field, value)?;
+                encoder.load_field(*tag, field, &value)?;
             }
         }
         encoder.load_unknown_fields(msg.get_unknown_fields()?);
@@ -64,19 +64,19 @@ impl MessageEncoder {
         &mut self,
         tag: u32,
         descriptor: &FieldDescriptor,
-        value: &PyAny,
+        value: &Bound<PyAny>,
     ) -> EncodeResult<()> {
         match &descriptor.attribute {
             FieldAttribute::Repeated => {
                 if !self.try_load_packed(tag, &descriptor.value_type, value)? {
                     for value in value.downcast::<PyList>()?.iter() {
-                        self.load_single::<false>(tag, &descriptor.value_type, value)?;
+                        self.load_single::<false>(tag, &descriptor.value_type, &value)?;
                     }
                 }
             }
             FieldAttribute::Map(key_type) => {
                 for (key, value) in value.downcast::<PyDict>()?.iter() {
-                    self.load_map_entry(tag, key_type, &descriptor.value_type, key, value)?;
+                    self.load_map_entry(tag, key_type, &descriptor.value_type, &key, &value)?;
                 }
             }
             FieldAttribute::None => self.load_single::<true>(tag, &descriptor.value_type, value)?,
@@ -90,9 +90,8 @@ impl MessageEncoder {
         &mut self,
         tag: u32,
         proto_type: &ProtoType,
-        value: &PyAny,
+        value: &Bound<PyAny>,
     ) -> EncodeResult<()> {
-        let py = value.py();
         let chunk = match proto_type {
             ProtoType::Bool => {
                 let value: bool = value.extract()?;
@@ -211,8 +210,8 @@ impl MessageEncoder {
             }
             ProtoType::Enum(_) => {
                 let value: i32 = value
-                    .getattr(intern!(py, "value"))
-                    .unwrap_or(value)
+                    .getattr(intern!(value.py(), "value"))
+                    .unwrap_or(value.clone())
                     .extract()?;
                 if SKIP_DEFAULT && value == 0 {
                     return Ok(());
@@ -226,7 +225,7 @@ impl MessageEncoder {
                 }
                 Chunk::from_message(
                     tag,
-                    MessageEncoder::from_betterproto_msg(msg, cls.descriptor(py)?)?,
+                    MessageEncoder::from_betterproto_msg(msg, cls.descriptor(value.py())?.get())?,
                 )
             }
             ProtoType::BoolValue => Chunk::from_known_message::<BoolValue>(tag, value.extract()?)?,
@@ -278,7 +277,7 @@ impl MessageEncoder {
         &mut self,
         tag: u32,
         proto_type: &ProtoType,
-        value: &PyAny,
+        value: &Bound<PyAny>,
     ) -> EncodeResult<bool> {
         let chunk = match proto_type {
             ProtoType::Bool => Some(Chunk::from_encoder(
@@ -391,8 +390,8 @@ impl MessageEncoder {
         tag: u32,
         key_type: &ProtoType,
         value_type: &ProtoType,
-        key: &PyAny,
-        value: &PyAny,
+        key: &Bound<PyAny>,
+        value: &Bound<PyAny>,
     ) -> EncodeResult<()> {
         let mut encoder = MessageEncoder::new();
         encoder.load_single::<true>(1, key_type, key)?;

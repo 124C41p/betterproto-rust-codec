@@ -14,18 +14,18 @@ pub type Str = Arc<str>;
 
 #[pyfunction]
 fn deserialize(obj: BetterprotoMessage, mut buf: &[u8]) -> DecodeResult<()> {
-    merge_into_message(obj, &mut buf)
+    merge_into_message(&obj, &mut buf)
 }
 
 #[pyfunction]
-fn serialize<'py>(py: Python<'py>, msg: BetterprotoMessage) -> EncodeResult<&'py PyBytes> {
+fn serialize<'py>(py: Python<'py>, msg: BetterprotoMessage) -> EncodeResult<Bound<'py, PyBytes>> {
     let cls = msg.class();
-    let encoder = MessageEncoder::from_betterproto_msg(msg, cls.descriptor(py)?)?;
-    Ok(PyBytes::new(py, &encoder.into_vec()))
+    let encoder = MessageEncoder::from_betterproto_msg(msg, cls.descriptor(py)?.get())?;
+    Ok(PyBytes::new_bound(py, &encoder.into_vec()))
 }
 
 #[pymodule]
-fn betterproto_rust_codec(_py: Python, m: &PyModule) -> PyResult<()> {
+fn betterproto_rust_codec(m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     Ok(())

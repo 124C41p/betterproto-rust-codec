@@ -50,7 +50,7 @@ impl<'a, 'py> ValueBuilder<'a, 'py> {
             Value::Unset => None,
             Value::Single(obj) => Some(obj),
             Value::Repeated(ls) => Some(ls.to_object(py)),
-            Value::Map(ls) => Some(ls.into_py_dict(py).to_object(py)),
+            Value::Map(ls) => Some(ls.into_py_dict_bound(py).to_object(py)),
         }
     }
 
@@ -144,7 +144,7 @@ fn parse_next_value(
         ProtoType::Bytes => {
             let mut value = vec![];
             enc::bytes::merge(wire_type, &mut value, buf, ctx)?;
-            Ok(PyBytes::new(py, &value).to_object(py))
+            Ok(PyBytes::new_bound(py, &value).to_object(py))
         }
         ProtoType::Double => {
             let mut value = Default::default();
@@ -217,10 +217,11 @@ fn parse_next_value(
             Ok(cls.create_instance(py, value)?)
         }
         ProtoType::CustomMessage(cls) => {
-            let mut builder = CustomMessageBuilder::new(py, cls.descriptor(py)?);
+            let descriptor = cls.descriptor(py)?;
+            let mut builder = CustomMessageBuilder::new(py, descriptor.get());
             builder.parse_next_length_delimited(wire_type, buf)?;
             let msg = cls.create_instance(py)?;
-            builder.merge_into(msg)?;
+            builder.merge_into(&msg)?;
             Ok(msg.to_object(py))
         }
         ProtoType::BoolValue => Ok(BoolValue::decode_length_delimited(buf)?.to_object(py)),
