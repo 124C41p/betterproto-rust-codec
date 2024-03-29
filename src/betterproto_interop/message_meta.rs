@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use pyo3::{
-    types::{PyDict, PyList, PyType},
-    FromPyObject, PyAny, Python,
+    types::{PyAnyMethods, PyDict, PyDictMethods, PyList, PyType},
+    Bound, FromPyObject, PyAny,
 };
 
 use crate::descriptors::MessageDescriptor;
@@ -14,10 +14,10 @@ use super::{
 
 #[derive(FromPyObject)]
 pub struct BetterprotoMessageMeta<'py> {
-    pub cls_by_field: HashMap<String, &'py PyType>,
-    pub meta_by_field_name: &'py PyDict,
+    pub cls_by_field: HashMap<String, Bound<'py, PyType>>,
+    pub meta_by_field_name: Bound<'py, PyDict>,
     pub oneof_group_by_field: HashMap<String, String>,
-    pub default_gen: HashMap<String, &'py PyAny>,
+    pub default_gen: HashMap<String, Bound<'py, PyAny>>,
 }
 
 impl<'py> BetterprotoMessageMeta<'py> {
@@ -26,10 +26,10 @@ impl<'py> BetterprotoMessageMeta<'py> {
             .default_gen
             .get(field_name)
             .ok_or(InteropError::IncompleteMetadata)?;
-        Ok(cls.is(cls.py().get_type::<PyList>()))
+        Ok(cls.is(&cls.py().get_type_bound::<PyList>()))
     }
 
-    pub fn get_class(&self, field_name: &str) -> InteropResult<&'py PyType> {
+    pub fn get_class(&self, field_name: &str) -> InteropResult<&Bound<'py, PyType>> {
         let cls = self
             .cls_by_field
             .get(field_name)
@@ -37,14 +37,14 @@ impl<'py> BetterprotoMessageMeta<'py> {
         Ok(cls)
     }
 
-    pub fn into_descriptor(self, py: Python) -> InteropResult<MessageDescriptor> {
+    pub fn into_descriptor(self) -> InteropResult<MessageDescriptor> {
         let fields = self
             .meta_by_field_name
             .iter()
             .map(|(name, meta)| {
                 let name = name.extract::<String>()?;
                 let meta = meta.extract::<BetterprotoFieldMeta>()?;
-                Ok((meta.number, meta.into_descriptor(py, name.into(), &self)?))
+                Ok((meta.number, meta.into_descriptor(name.into(), &self)?))
             })
             .collect::<InteropResult<Vec<_>>>()?;
         Ok(MessageDescriptor { fields })

@@ -1,4 +1,5 @@
 use pyo3::{
+    pyclass,
     types::{PyBytes, PyString},
     PyObject, Python, ToPyObject,
 };
@@ -10,6 +11,7 @@ use crate::{
 };
 
 #[derive(Debug)]
+#[pyclass(frozen)]
 pub struct MessageDescriptor {
     pub fields: Vec<(u32, FieldDescriptor)>,
 }
@@ -66,7 +68,7 @@ impl ProtoType {
     pub fn default_value(&self, py: Python) -> InteropResult<PyObject> {
         match self {
             Self::Bool => Ok(false.to_object(py)),
-            Self::Bytes => Ok(PyBytes::new(py, &[]).to_object(py)),
+            Self::Bytes => Ok(PyBytes::new_bound(py, &[]).to_object(py)),
             Self::Double | Self::Float => Ok(0_f64.to_object(py)),
             Self::Int32
             | Self::Int64
@@ -78,7 +80,7 @@ impl ProtoType {
             | Self::Fixed64
             | Self::Sfixed32
             | Self::Sfixed64 => Ok(0_i64.to_object(py)),
-            Self::String => Ok(PyString::new(py, "").to_object(py)),
+            Self::String => Ok(PyString::new_bound(py, "").to_object(py)),
             Self::Enum(cls) => cls.create_instance(py, 0),
             Self::CustomMessage(cls) => Ok(cls.create_instance(py)?.to_object(py)),
             Self::BoolValue

@@ -34,7 +34,7 @@ impl<'a, 'py> CustomMessageBuilder<'a, 'py> {
         }
     }
 
-    pub fn merge_into(self, msg: BetterprotoMessage) -> InteropResult<()> {
+    pub fn merge_into(self, msg: &BetterprotoMessage) -> InteropResult<()> {
         for (name, value) in self
             .fields
             .into_values()

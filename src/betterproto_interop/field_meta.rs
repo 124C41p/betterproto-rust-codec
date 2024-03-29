@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use super::{
     error::{InteropError, InteropResult},
     message_class::BetterprotoMessageClass,
@@ -8,7 +10,7 @@ use crate::{
     descriptors::{FieldAttribute, FieldDescriptor, ProtoType},
     Str,
 };
-use pyo3::{FromPyObject, IntoPy, Python};
+use pyo3::{types::PyTypeMethods, FromPyObject};
 
 #[derive(FromPyObject)]
 pub struct BetterprotoFieldMeta {
@@ -22,14 +24,13 @@ pub struct BetterprotoFieldMeta {
 impl BetterprotoFieldMeta {
     pub fn into_descriptor(
         self,
-        py: Python,
         field_name: Str,
         msg_meta: &BetterprotoMessageMeta,
     ) -> InteropResult<FieldDescriptor> {
         if let Some((key_type, value_type)) = self.map_types {
             let key_type = convert_key_type(&key_type)?;
             let value_type =
-                convert_value_type(py, &value_type, &format!("{field_name}.value"), msg_meta)?;
+                convert_value_type(&value_type, &format!("{field_name}.value"), msg_meta)?;
             return Ok(FieldDescriptor {
                 name: field_name,
                 attribute: FieldAttribute::Map(key_type),
@@ -39,7 +40,7 @@ impl BetterprotoFieldMeta {
 
         let value_type = match self.wraps {
             Some(wrapped_type) => convert_wrapped_type(&wrapped_type)?,
-            None => convert_value_type(py, &self.proto_type, &field_name, msg_meta)?,
+            None => convert_value_type(&self.proto_type, &field_name, msg_meta)?,
         };
 
         let attribute = if self.optional {
@@ -61,7 +62,6 @@ impl BetterprotoFieldMeta {
 }
 
 fn convert_value_type(
-    py: Python,
     type_name: &str,
     field_name: &str,
     msg_meta: &BetterprotoMessageMeta,
@@ -83,19 +83,17 @@ fn convert_value_type(
         "string" => Ok(ProtoType::String),
         "bytes" => Ok(ProtoType::Bytes),
         "enum" => Ok(ProtoType::Enum(BetterprotoEnumClass(
-            msg_meta.get_class(field_name)?.into_py(py),
+            msg_meta.get_class(field_name)?.clone().unbind(),
         ))),
         "message" => {
             let cls = msg_meta.get_class(field_name)?;
-            if cls.getattr("__module__")?.extract::<&str>()? == "datetime" {
-                match cls.name()? {
-                    "datetime" => return Ok(ProtoType::Timestamp),
-                    "timedelta" => return Ok(ProtoType::Duration),
-                    _ => {}
-                }
+            match cls.name()?.deref() {
+                "datetime.datetime" => return Ok(ProtoType::Timestamp),
+                "datetime.timedelta" => return Ok(ProtoType::Duration),
+                _ => {}
             }
             Ok(ProtoType::CustomMessage(BetterprotoMessageClass(
-                cls.into_py(py),
+                cls.clone().unbind(),
             )))
         }
         _ => Err(InteropError::UnsupportedValueType(type_name.to_string())),

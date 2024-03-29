@@ -3,19 +3,19 @@ use indoc::indoc;
 use pyo3::{
     intern,
     sync::GILOnceCell,
-    types::{PyBytes, PyModule},
-    FromPyObject, IntoPy, PyAny, PyObject, Python, ToPyObject,
+    types::{PyAnyMethods, PyBytes, PyModule},
+    Bound, FromPyObject, PyAny, PyObject, Python, ToPyObject,
 };
 
-#[derive(FromPyObject, Clone, Copy)]
-pub struct BetterprotoMessage<'py>(pub(super) &'py PyAny);
+#[derive(FromPyObject, Clone)]
+pub struct BetterprotoMessage<'py>(pub(super) Bound<'py, PyAny>);
 
 impl<'py> BetterprotoMessage<'py> {
     pub fn class(&self) -> BetterprotoMessageClass {
-        BetterprotoMessageClass(self.0.get_type().into_py(self.0.py()))
+        BetterprotoMessageClass(self.0.get_type().unbind())
     }
 
-    pub fn py(&self) -> Python {
+    pub fn py(&self) -> Python<'py> {
         self.0.py()
     }
 
@@ -24,12 +24,12 @@ impl<'py> BetterprotoMessage<'py> {
         Ok(())
     }
 
-    pub fn get_field(&'py self, field_name: &str) -> InteropResult<Option<&'py PyAny>> {
+    pub fn get_field(&self, field_name: &str) -> InteropResult<Option<Bound<'py, PyAny>>> {
         let py = self.py();
         static GETTER_CACHE: GILOnceCell<PyObject> = GILOnceCell::new();
         let getter = GETTER_CACHE
             .get_or_init(py, || {
-                PyModule::from_code(
+                PyModule::from_code_bound(
                     py,
                     indoc! {"
                         from betterproto import PLACEHOLDER
@@ -48,9 +48,9 @@ impl<'py> BetterprotoMessage<'py> {
                 .expect("Attribute exists")
                 .to_object(py)
             })
-            .as_ref(py);
+            .bind(py);
 
-        let res = getter.call1((self.0, field_name))?.extract()?;
+        let res = getter.call1((self.0.clone(), field_name))?.extract()?;
         Ok(res)
     }
 
@@ -60,7 +60,7 @@ impl<'py> BetterprotoMessage<'py> {
             let mut unknown_fields = self.0.getattr(attr_name)?.extract::<Vec<u8>>()?;
             unknown_fields.append(&mut data);
             self.0
-                .setattr(attr_name, PyBytes::new(self.py(), &unknown_fields))?;
+                .setattr(attr_name, PyBytes::new_bound(self.py(), &unknown_fields))?;
         }
         Ok(())
     }

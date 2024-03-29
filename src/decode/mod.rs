@@ -12,10 +12,11 @@ use prost::{
     encoding::{check_wire_type, decode_varint, WireType},
 };
 
-pub fn merge_into_message(msg: BetterprotoMessage, buf: &mut impl Buf) -> DecodeResult<()> {
+pub fn merge_into_message(msg: &BetterprotoMessage, buf: &mut impl Buf) -> DecodeResult<()> {
     let py = msg.py();
     let cls = msg.class();
-    let mut builder = CustomMessageBuilder::new(py, cls.descriptor(py)?);
+    let descriptor = cls.descriptor(py)?;
+    let mut builder = CustomMessageBuilder::new(py, descriptor.get());
     while buf.has_remaining() {
         builder.parse_next_field(buf)?;
     }

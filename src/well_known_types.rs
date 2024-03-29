@@ -1,8 +1,9 @@
 use indoc::indoc;
 use prost::Message;
 use pyo3::{
+    prelude::Bound,
     sync::GILOnceCell,
-    types::{PyBytes, PyModule},
+    types::{PyAnyMethods, PyBytes, PyModule},
     FromPyObject, PyAny, PyObject, PyResult, Python, ToPyObject,
 };
 
@@ -77,7 +78,7 @@ pub struct Timestamp {
 }
 
 impl<'py> FromPyObject<'py> for BoolValue {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let res = BoolValue {
             value: ob.extract()?,
         };
@@ -86,7 +87,7 @@ impl<'py> FromPyObject<'py> for BoolValue {
 }
 
 impl<'py> FromPyObject<'py> for BytesValue {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let res = BytesValue {
             value: ob.extract()?,
         };
@@ -95,7 +96,7 @@ impl<'py> FromPyObject<'py> for BytesValue {
 }
 
 impl<'py> FromPyObject<'py> for DoubleValue {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let res = DoubleValue {
             value: ob.extract()?,
         };
@@ -104,7 +105,7 @@ impl<'py> FromPyObject<'py> for DoubleValue {
 }
 
 impl<'py> FromPyObject<'py> for FloatValue {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let res = FloatValue {
             value: ob.extract()?,
         };
@@ -113,7 +114,7 @@ impl<'py> FromPyObject<'py> for FloatValue {
 }
 
 impl<'py> FromPyObject<'py> for Int32Value {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let res = Int32Value {
             value: ob.extract()?,
         };
@@ -122,7 +123,7 @@ impl<'py> FromPyObject<'py> for Int32Value {
 }
 
 impl<'py> FromPyObject<'py> for Int64Value {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let res = Int64Value {
             value: ob.extract()?,
         };
@@ -131,7 +132,7 @@ impl<'py> FromPyObject<'py> for Int64Value {
 }
 
 impl<'py> FromPyObject<'py> for UInt32Value {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let res = UInt32Value {
             value: ob.extract()?,
         };
@@ -140,7 +141,7 @@ impl<'py> FromPyObject<'py> for UInt32Value {
 }
 
 impl<'py> FromPyObject<'py> for UInt64Value {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let res = UInt64Value {
             value: ob.extract()?,
         };
@@ -149,7 +150,7 @@ impl<'py> FromPyObject<'py> for UInt64Value {
 }
 
 impl<'py> FromPyObject<'py> for StringValue {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let res = StringValue {
             value: ob.extract()?,
         };
@@ -158,12 +159,12 @@ impl<'py> FromPyObject<'py> for StringValue {
 }
 
 impl<'py> FromPyObject<'py> for Duration {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         static DECONSTRUCTOR_CACHE: GILOnceCell<PyObject> = GILOnceCell::new();
         let deconstructor = DECONSTRUCTOR_CACHE
             .get_or_init(py, || {
-                PyModule::from_code(
+                PyModule::from_code_bound(
                     py,
                     indoc! {"
                         from datetime import timedelta
@@ -182,7 +183,7 @@ impl<'py> FromPyObject<'py> for Duration {
                 .expect("Attribute exists")
                 .to_object(py)
             })
-            .as_ref(py);
+            .bind(py);
         let (seconds, nanos) = deconstructor.call1((ob,))?.extract()?;
         let res = Duration { seconds, nanos };
         Ok(res)
@@ -190,12 +191,12 @@ impl<'py> FromPyObject<'py> for Duration {
 }
 
 impl<'py> FromPyObject<'py> for Timestamp {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         static DECONSTRUCTOR_CACHE: GILOnceCell<PyObject> = GILOnceCell::new();
         let deconstructor = DECONSTRUCTOR_CACHE
             .get_or_init(py, || {
-                PyModule::from_code(
+                PyModule::from_code_bound(
                     py,
                     indoc! {"
                         def deconstructor(dt):
@@ -211,7 +212,7 @@ impl<'py> FromPyObject<'py> for Timestamp {
                 .expect("Attribute exists")
                 .to_object(py)
             })
-            .as_ref(py);
+            .bind(py);
         let (seconds, nanos) = deconstructor.call1((ob,))?.extract()?;
         let res = Timestamp { seconds, nanos };
         Ok(res)
@@ -226,7 +227,7 @@ impl ToPyObject for BoolValue {
 
 impl ToPyObject for BytesValue {
     fn to_object(&self, py: Python) -> PyObject {
-        PyBytes::new(py, &self.value).to_object(py)
+        PyBytes::new_bound(py, &self.value).to_object(py)
     }
 }
 
@@ -276,7 +277,7 @@ impl ToPyObject for Duration {
     fn to_object(&self, py: Python) -> PyObject {
         static CONSTRUCTOR_CACHE: GILOnceCell<PyObject> = GILOnceCell::new();
         let constructor = CONSTRUCTOR_CACHE.get_or_init(py, || {
-            PyModule::from_code(
+            PyModule::from_code_bound(
                 py,
                 indoc! {"
                     from datetime import timedelta
@@ -302,7 +303,7 @@ impl ToPyObject for Timestamp {
     fn to_object(&self, py: Python) -> PyObject {
         static CONSTRUCTOR_CACHE: GILOnceCell<PyObject> = GILOnceCell::new();
         let constructor = CONSTRUCTOR_CACHE.get_or_init(py, || {
-            PyModule::from_code(
+            PyModule::from_code_bound(
                 py,
                 indoc! {"
                     from datetime import datetime, timezone
