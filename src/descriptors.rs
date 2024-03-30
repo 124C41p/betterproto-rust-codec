@@ -92,8 +92,12 @@ impl ProtoType {
             | Self::StringValue
             | Self::UInt32Value
             | Self::UInt64Value => Ok(py.None()),
-            Self::Timestamp => Ok(Timestamp::default().to_object(py)),
-            Self::Duration => Ok(Duration::default().to_object(py)),
+            Self::Timestamp => Ok(Timestamp::default()
+                .try_to_object(py)
+                .expect("Default converts into valid Python object.")),
+            Self::Duration => Ok(Duration::default()
+                .try_to_object(py)
+                .expect("Default converts into valid Python object.")),
         }
     }
 }
