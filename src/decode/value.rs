@@ -233,8 +233,8 @@ fn parse_next_value(
         ProtoType::UInt32Value => Ok(UInt32Value::decode_length_delimited(buf)?.to_object(py)),
         ProtoType::UInt64Value => Ok(UInt64Value::decode_length_delimited(buf)?.to_object(py)),
         ProtoType::StringValue => Ok(StringValue::decode_length_delimited(buf)?.to_object(py)),
-        ProtoType::Timestamp => Ok(Timestamp::decode_length_delimited(buf)?.to_object(py)),
-        ProtoType::Duration => Ok(Duration::decode_length_delimited(buf)?.to_object(py)),
+        ProtoType::Timestamp => Ok(Timestamp::decode_length_delimited(buf)?.try_to_object(py)?),
+        ProtoType::Duration => Ok(Duration::decode_length_delimited(buf)?.try_to_object(py)?),
     }
 }
 

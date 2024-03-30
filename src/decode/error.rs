@@ -12,6 +12,8 @@ pub enum DecodeError {
     InvalidMapEntryTag,
     #[error("The given binary data is not a valid protobuf message.")]
     InvalidData,
+    #[error("Decoded timestamp {0} is out of bounds.")]
+    TimestampOutOfBounds(chrono::DateTime<chrono::Utc>),
 }
 
 pub type DecodeResult<T> = Result<T, DecodeError>;

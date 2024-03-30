@@ -1,11 +1,17 @@
-use indoc::indoc;
+use chrono::Datelike;
 use prost::Message;
 use pyo3::{
     prelude::Bound,
-    sync::GILOnceCell,
-    types::{PyAnyMethods, PyBytes, PyModule},
+    types::{PyAnyMethods, PyBytes},
     FromPyObject, PyAny, PyObject, PyResult, Python, ToPyObject,
 };
+
+use crate::{
+    betterproto_interop::{InteropError, InteropResult},
+    decode::{DecodeError, DecodeResult},
+};
+
+const NANOS_PER_SEC: u32 = 1_000_000_000;
 
 #[derive(Message)]
 pub struct BoolValue {
@@ -158,64 +164,84 @@ impl<'py> FromPyObject<'py> for StringValue {
     }
 }
 
+impl From<chrono::TimeDelta> for Duration {
+    fn from(value: chrono::TimeDelta) -> Self {
+        Self {
+            seconds: value.num_seconds(),
+            nanos: value.subsec_nanos(),
+        }
+    }
+}
+
 impl<'py> FromPyObject<'py> for Duration {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let py = ob.py();
-        static DECONSTRUCTOR_CACHE: GILOnceCell<PyObject> = GILOnceCell::new();
-        let deconstructor = DECONSTRUCTOR_CACHE
-            .get_or_init(py, || {
-                PyModule::from_code_bound(
-                    py,
-                    indoc! {"
-                        from datetime import timedelta
-                        
-                        def deconstructor(delta, *, _1_microsecond = timedelta(microseconds=1)):
-                            total_ms = delta // _1_microsecond
-                            seconds = int(total_ms / 1e6)
-                            nanos = int((total_ms % 1e6) * 1e3)
-                            return (seconds, nanos)
-                    "},
-                    "",
-                    "",
-                )
-                .expect("This is a valid Python module")
-                .getattr("deconstructor")
-                .expect("Attribute exists")
-                .to_object(py)
-            })
-            .bind(py);
-        let (seconds, nanos) = deconstructor.call1((ob,))?.extract()?;
-        let res = Duration { seconds, nanos };
-        Ok(res)
+        Ok(ob.extract::<chrono::TimeDelta>()?.into())
+    }
+}
+
+impl TryFrom<&Duration> for chrono::Duration {
+    type Error = DecodeError;
+
+    fn try_from(value: &Duration) -> Result<Self, Self::Error> {
+        let (secs, nanos) = if value.nanos < 0 {
+            (value.seconds - 1, value.nanos + NANOS_PER_SEC as i32)
+        } else {
+            (value.seconds, value.nanos)
+        };
+        let nanos = u32::try_from(nanos).map_err(|_| DecodeError::InvalidData)?;
+        chrono::Duration::new(secs, nanos).ok_or(DecodeError::InvalidData)
+    }
+}
+
+impl Duration {
+    pub fn try_to_object(&self, py: Python) -> DecodeResult<PyObject> {
+        Ok(chrono::TimeDelta::try_from(self)?.to_object(py))
+    }
+}
+
+impl Timestamp {
+    fn try_from_any(ob: &Bound<PyAny>) -> InteropResult<Self> {
+        // try to extract an offset-aware datetime object
+        if let Ok(dt) = ob.extract::<chrono::DateTime<chrono::FixedOffset>>() {
+            return Ok(dt.to_utc().into());
+        }
+
+        // fallback to extract an offset-naive datetime object, interpreted relative to the user's local timezone
+        let dt = ob.extract::<chrono::NaiveDateTime>()?;
+        Ok(dt
+            .and_local_timezone(chrono::Local)
+            .single()
+            .ok_or(InteropError::OffsetNaiveDateTimeDoesNotMap(dt))?
+            .to_utc()
+            .into())
+    }
+
+    pub fn try_to_object(&self, py: Python) -> DecodeResult<PyObject> {
+        let nanos = u32::try_from(self.nanos).map_err(|_| DecodeError::InvalidData)?;
+        let dt = chrono::DateTime::from_timestamp(self.seconds, nanos)
+            .ok_or(DecodeError::InvalidData)?;
+        if !(1..=9999).contains(&dt.year()) {
+            return Err(DecodeError::TimestampOutOfBounds(dt));
+        }
+        Ok(dt.to_object(py))
+    }
+}
+
+impl From<chrono::DateTime<chrono::Utc>> for Timestamp {
+    fn from(value: chrono::DateTime<chrono::Utc>) -> Self {
+        let nanos = value.timestamp_subsec_nanos();
+        debug_assert!(nanos < NANOS_PER_SEC, "Python datetimes do not have leap seconds, so this value should always satisfy the Protobuf specification.");
+
+        Self {
+            seconds: value.timestamp(),
+            nanos: nanos as i32,
+        }
     }
 }
 
 impl<'py> FromPyObject<'py> for Timestamp {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let py = ob.py();
-        static DECONSTRUCTOR_CACHE: GILOnceCell<PyObject> = GILOnceCell::new();
-        let deconstructor = DECONSTRUCTOR_CACHE
-            .get_or_init(py, || {
-                PyModule::from_code_bound(
-                    py,
-                    indoc! {"
-                        def deconstructor(dt):
-                            seconds = int(dt.timestamp())
-                            nanos = int(dt.microsecond * 1e3)
-                            return (seconds, nanos)
-                    "},
-                    "",
-                    "",
-                )
-                .expect("This is a valid Python module")
-                .getattr("deconstructor")
-                .expect("Attribute exists")
-                .to_object(py)
-            })
-            .bind(py);
-        let (seconds, nanos) = deconstructor.call1((ob,))?.extract()?;
-        let res = Timestamp { seconds, nanos };
-        Ok(res)
+        Ok(Self::try_from_any(ob)?)
     }
 }
 
@@ -270,58 +296,5 @@ impl ToPyObject for UInt64Value {
 impl ToPyObject for StringValue {
     fn to_object(&self, py: Python) -> PyObject {
         self.value.to_object(py)
-    }
-}
-
-impl ToPyObject for Duration {
-    fn to_object(&self, py: Python) -> PyObject {
-        static CONSTRUCTOR_CACHE: GILOnceCell<PyObject> = GILOnceCell::new();
-        let constructor = CONSTRUCTOR_CACHE.get_or_init(py, || {
-            PyModule::from_code_bound(
-                py,
-                indoc! {"
-                    from datetime import timedelta
-                    
-                    def constructor(s, ms):
-                        return timedelta(seconds=s, microseconds=ms)
-                "},
-                "",
-                "",
-            )
-            .expect("This is a valid Python module")
-            .getattr("constructor")
-            .expect("Attribute exists")
-            .to_object(py)
-        });
-        constructor
-            .call1(py, (self.seconds as f64, (self.nanos as f64) / 1e3))
-            .expect("static function will not fail")
-    }
-}
-
-impl ToPyObject for Timestamp {
-    fn to_object(&self, py: Python) -> PyObject {
-        static CONSTRUCTOR_CACHE: GILOnceCell<PyObject> = GILOnceCell::new();
-        let constructor = CONSTRUCTOR_CACHE.get_or_init(py, || {
-            PyModule::from_code_bound(
-                py,
-                indoc! {"
-                    from datetime import datetime, timezone
-                    
-                    def constructor(ts):
-                        return datetime.fromtimestamp(ts, tz=timezone.utc)
-                "},
-                "",
-                "",
-            )
-            .expect("This is a valid Python module")
-            .getattr("constructor")
-            .expect("Attribute exists")
-            .to_object(py)
-        });
-        let ts = (self.seconds as f64) + (self.nanos as f64) / 1e9;
-        constructor
-            .call1(py, (ts,))
-            .expect("static function will not fail")
     }
 }
