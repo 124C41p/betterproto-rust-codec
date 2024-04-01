@@ -4,14 +4,16 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum EncodeError {
-    #[error("Given object is not a valid betterproto message.")]
-    NoBetterprotoMessage(#[from] PyErr),
+    #[error(transparent)]
+    PythonInteropFailed(#[from] PyErr),
     #[error("Given object is not a valid betterproto message.")]
     DowncastFailed,
     #[error(transparent)]
     Interop(#[from] InteropError),
     #[error("Given object is not a valid betterproto message.")]
     ProstEncode(#[from] prost::EncodeError),
+    #[error("Offset-naive datetime {0} is invalid for the current local timezone.")]
+    OffsetNaiveDateTimeDoesNotMap(chrono::NaiveDateTime),
 }
 
 pub type EncodeResult<T> = Result<T, EncodeError>;
@@ -24,6 +26,10 @@ impl From<DowncastError<'_, '_>> for EncodeError {
 
 impl From<EncodeError> for PyErr {
     fn from(value: EncodeError) -> Self {
-        PyRuntimeError::new_err(value.to_string())
+        if let EncodeError::PythonInteropFailed(pyerr) = value {
+            pyerr
+        } else {
+            PyRuntimeError::new_err(value.to_string())
+        }
     }
 }
