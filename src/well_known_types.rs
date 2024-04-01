@@ -7,8 +7,8 @@ use pyo3::{
 };
 
 use crate::{
-    betterproto_interop::{InteropError, InteropResult},
     decode::{DecodeError, DecodeResult},
+    encode::{EncodeError, EncodeResult},
 };
 
 const NANOS_PER_SEC: u32 = 1_000_000_000;
@@ -200,7 +200,7 @@ impl Duration {
 }
 
 impl Timestamp {
-    fn try_from_any(ob: &Bound<PyAny>) -> InteropResult<Self> {
+    fn try_from_any(ob: &Bound<PyAny>) -> EncodeResult<Self> {
         // try to extract an offset-aware datetime object
         if let Ok(dt) = ob.extract::<chrono::DateTime<chrono::FixedOffset>>() {
             return Ok(dt.to_utc().into());
@@ -211,7 +211,7 @@ impl Timestamp {
         Ok(dt
             .and_local_timezone(chrono::Local)
             .single()
-            .ok_or(InteropError::OffsetNaiveDateTimeDoesNotMap(dt))?
+            .ok_or(EncodeError::OffsetNaiveDateTimeDoesNotMap(dt))?
             .to_utc()
             .into())
     }
